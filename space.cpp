@@ -99,7 +99,7 @@ namespace space {
 struct Meteor {
 	space::SpaceType type;
 	float xD, yD;
-	int xA, yA;
+	float xA, yA;
 };
 
 void MoveMeteor(space::World* world, Meteor* meteor) {
@@ -112,11 +112,13 @@ void MoveMeteor(space::World* world, Meteor* meteor) {
 			space->overlay = space::NONE;
 		}
 	}
-	meteor->xA += ceil(meteor->xD); 
-	meteor->yA += ceil(meteor->yD);
+	meteor->xA += meteor->xD;
+	meteor->yA += meteor->yD;
 
 	if(meteor->xA >= negBound && meteor->xA < bound) {
 		if(meteor->yA >= negBound && meteor->yA < bound) {
+			int x = meteor->xA > 0 ? ceil(meteor->xA) : floor(meteor->xA); 
+			int y = meteor->yA > 0 ? ceil(meteor->yA) : floor(meteor->yA);
 			space::Space* space = rootQuad->GetSpace(meteor->xA, meteor->yA);
 			space->overlay = meteor->type;
 		}
@@ -131,8 +133,8 @@ void ManageScrollingMeteors(space::World* world, int length, Meteor* meteors) {
 		Meteor* meteor = &meteors[i];
 		if(meteor->xD == 0 || meteor-> yA > bound) {
 			int xF = (rand() % rootQuad->length) - bound;
-		      	int yF = (rand() % 5) - bound;
-			int xT = (rand() % rootQuad->length) + bound;
+		      	int yF = negBound - (rand() % 5);
+			int xT = ((rand() % 10) - 5) + xF;
 		      	int yT = (rand() % 5) + bound;
 			int binary = (rand() % 2);
 			meteor->xA = xF;
@@ -203,7 +205,7 @@ GlyphCoord MapGlyph(space::SpaceType type) {
 			coord.y = 3;
 			break;
 		case space::METEOR2:
-			coord.x = 13;
+			coord.x = 14;
 			coord.y = 0;
 			break;
 	}
@@ -250,7 +252,7 @@ int main(int argc, char* argv[]) {
 	SDL_Texture* glyphs = SDL_CreateTextureFromSurface(Main_Renderer, Loading_Surf);
   	SDL_FreeSurface(Loading_Surf);
 
-	static int NUM_METEORS = 10;
+	static int NUM_METEORS = 100;
 	Meteor* meteors = new Meteor[NUM_METEORS];
 
  	for(SDL_Event e; e.type!=SDL_QUIT&&e.type!=SDL_KEYDOWN; SDL_PollEvent(&e)) {
