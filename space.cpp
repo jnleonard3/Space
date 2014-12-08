@@ -1,13 +1,24 @@
-#include <windows.h>
-#include <GL/glut.h>
+#include "SDL2\SDL.h"
+#include <stdio.h>
+#include <stdlib.h>     /* srand, rand */
+#include <time.h>       /* time */
 #include <iostream>
 
 namespace space {
 
+	enum SpaceType {
+		NONE = 0,
+		WALL,
+		FLOOR,
+		METEOR,
+		METEOR2
+	};
+
 	class Space {
 	public:
 		Space();
-		int value;
+		SpaceType type;
+		SpaceType overlay;
 	};
 
 	Space::Space() {
@@ -58,13 +69,9 @@ namespace space {
 			}
 			int rel2X = relX - child->length;
 			int rel2Y = relY + (child->length / 2);
-			//std::cout << "Quad: " << id << x << ", " << y << std::endl;
-			//std::cout << "Quad: " << id << " Rel: " << relX << ", " << relY << std::endl;
-			//std::cout << "Quad: " << id << " Rel: 2 " << rel2X << ", " << rel2Y << std::endl;
 
 			return child->GetSpace(relX, relY);
 		} else {
-			//std::cout << "Quad: " << id << " Field: " << x << ", " << y << std::endl;
 			return &field[x][y];
 		}
 	}
@@ -84,57 +91,194 @@ namespace space {
 			rootQuad->children[i]->id = i + 1;
 		}
 	};
-}
+};
 
-void display() {
-   glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // Set background color to black and opaque
-   glClear(GL_COLOR_BUFFER_BIT);         // Clear the color buffer
- 
-   // Draw a Red 1x1 Square centered at origin
-   glBegin(GL_QUADS);              // Each set of 4 vertices form a quad
-      glColor3f(1.0f, 0.0f, 0.0f); // Red
-      glVertex2f(-0.5f, -0.5f);    // x, y
-      glVertex2f( 0.5f, -0.5f);
-      glVertex2f( 0.5f,  0.5f);
-      glVertex2f(-0.5f,  0.5f);
-   glEnd();
- 
-   glFlush();  // Render now
-}
 
-int main(int argc, char** argv) {
-   glutInit(&argc, argv);                 // Initialize GLUT
-   glutCreateWindow("OpenGL Setup Test"); // Create a window with the given title
-   glutInitWindowSize(320, 320);   // Set the window's initial width & height
-   glutInitWindowPosition(50, 50); // Position the window's initial top-left corner
-   glutDisplayFunc(display); // Register display callback handler for window re-paint
-   glutMainLoop();           // Enter the infinitely event-processing loop
-   return 0;
-}
+// Space Nonsense
 
-void printTheWorld(space::World *world) {
+struct Meteor {
+	space::SpaceType type;
+	float xD, yD;
+	int xA, yA;
+};
+
+void MoveMeteor(space::World* world, Meteor* meteor) {
 	space::Quad* rootQuad = world->rootQuad;
-	for(int i = -(rootQuad->length / 2); i < (rootQuad->length / 2); i += 1) {
-		for(int j = -(rootQuad->length / 2); j < (rootQuad->length / 2); j += 1) {
-			std::cout << rootQuad->GetSpace(i, j)->value << " ";
+	int bound = rootQuad->length / 2;
+	int negBound = -bound;
+	if(meteor->xA >= negBound && meteor->xA < bound) {
+		if(meteor->yA >= negBound && meteor->yA < bound) {
+			space::Space* space = rootQuad->GetSpace(meteor->xA, meteor->yA);
+			space->overlay = space::NONE;
 		}
-		std::cout << std::endl;
+	}
+	meteor->xA += ceil(meteor->xD); 
+	meteor->yA += ceil(meteor->yD);
+
+	if(meteor->xA >= negBound && meteor->xA < bound) {
+		if(meteor->yA >= negBound && meteor->yA < bound) {
+			space::Space* space = rootQuad->GetSpace(meteor->xA, meteor->yA);
+			space->overlay = meteor->type;
+		}
 	}
 }
 
-int main2(int argc, char** argv) {
-	space::World* world = new space::World();
+void ManageScrollingMeteors(space::World* world, int length, Meteor* meteors) {
 	space::Quad* rootQuad = world->rootQuad;
-	int val = 0;
-	for(int i = -(rootQuad->length / 2); i < (rootQuad->length / 2); i += 1) {
-		for(int j = -(rootQuad->length / 2); j < (rootQuad->length / 2); j += 1) {
-			rootQuad->GetSpace(i, j)->value = 0;
-			val += 1;
-			if(i == j) {
-				rootQuad->GetSpace(i, j)->value = 1;
+	int bound = rootQuad->length / 2;
+	int negBound = -bound;
+	for(int i = 0; i < length; i += 1) {
+		Meteor* meteor = &meteors[i];
+		if(meteor->xD == 0 || meteor-> yA > bound) {
+			int xF = (rand() % rootQuad->length) - bound;
+		      	int yF = (rand() % 5) - bound;
+			int xT = (rand() % rootQuad->length) + bound;
+		      	int yT = (rand() % 5) + bound;
+			int binary = (rand() % 2);
+			meteor->xA = xF;
+			meteor->yA = yF;
+			meteor->xD = xT - xF;
+			meteor->yD = yT - yF;
+			float length = sqrt(pow(meteor->xD, 2) + pow(meteor->yD, 2));
+			meteor->xD /= length;
+			meteor->yD /= length;
+			if(binary == 0) {
+				meteor->type = space::METEOR;
+			} else {
+				meteor->type = space::METEOR2;
+			}
+		} else {
+			MoveMeteor(world, meteor);
+		}
+	}
+}
+
+void CreateBlock(space::World* world, space::SpaceType type, int xF, int yF, int xT, int yT, bool overwrite) {
+	space::Quad* rootQuad = world->rootQuad;
+	for(int i = std::min(xF, xT); i <= std::max(xF, xT); i += 1) {
+		for(int j = std::min(yF, yT); j <= std::max(yF, yT); j += 1) {
+			space::Space* space = rootQuad->GetSpace(i, j);
+			if(space-> type == space::NONE || overwrite) {
+				space->type = type;
 			}
 		}
 	}
+}
 
-	printTheWorld(world);
+void CreateRoom(space::World* world, int xF, int yF, int xT, int yT) {
+	space::Quad* rootQuad = world->rootQuad;
+	CreateBlock(world, space::WALL, xF, yF, xF, yT, false);
+	CreateBlock(world, space::WALL, xF, yF, xT, yF, false);
+	CreateBlock(world, space::WALL, xT, yF, xT, yT, false);
+	CreateBlock(world, space::WALL, xF, yT, xT, yT, false);
+	CreateBlock(world, space::FLOOR, xF + 1, yF + 1, xT - 1, yT - 1, true);
+}
+
+
+// Graphics Nonsense
+
+static int gW = 8, gH = 15;
+
+struct GlyphCoord {
+	int x, y;
+};
+
+GlyphCoord MapGlyph(space::SpaceType type) {
+	GlyphCoord coord = { 10, 2 };
+	switch(type) {
+		case space::NONE:
+			coord.x = 10;
+			coord.y = 2;
+			break;
+		case space::WALL:
+			coord.x = 23;
+			coord.y = 1;
+			break;
+		case space::FLOOR:
+			coord.x = 11;
+			coord.y = 3;
+			break;
+		case space::METEOR:
+			coord.x = 13;
+			coord.y = 3;
+			break;
+		case space::METEOR2:
+			coord.x = 13;
+			coord.y = 0;
+			break;
+	}
+	return coord;
+}
+
+void renderGlyph(SDL_Renderer* renderer, SDL_Texture* glyphs, int x, int y, int gX, int gY) {
+	SDL_Rect quad = { x, y, gW, gH };
+	SDL_Rect clip = { gX*gW, gY*gH, gW, gH };
+	SDL_RenderCopy(renderer, glyphs, &clip, &quad);
+}
+
+int main(int argc, char* argv[]) {
+
+	space::World* world = new space::World();
+	space::Quad* rootQuad = world->rootQuad;
+
+	CreateRoom(world, -5, -5, 5, 5);
+	CreateRoom(world, -7, -2, 7, 2); 
+	CreateRoom(world, -2, -5, 2, -10); 
+
+	srand (time(NULL));
+
+    	SDL_Window *window;                    // Declare a pointer
+    	SDL_Init(SDL_INIT_VIDEO);              // Initialize SDL2
+
+    	window = SDL_CreateWindow(
+        	"Spaaaaaaace",                  // window title
+        	SDL_WINDOWPOS_UNDEFINED,           // initial x position
+        	SDL_WINDOWPOS_UNDEFINED,           // initial y position
+        	rootQuad->length*gW,                               // width, in pixels
+        	rootQuad->length*gH,                               // height, in pixels
+        	SDL_WINDOW_OPENGL                  // flags - see below
+    	);
+
+    	if (window == NULL) {
+        	printf("Could not create window: %s\n", SDL_GetError());
+       		return 1;
+    	}
+
+	SDL_Renderer* Main_Renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+
+	SDL_Surface* Loading_Surf = SDL_LoadBMP("glyphs_black.bmp");
+	SDL_Texture* glyphs = SDL_CreateTextureFromSurface(Main_Renderer, Loading_Surf);
+  	SDL_FreeSurface(Loading_Surf);
+
+	static int NUM_METEORS = 10;
+	Meteor* meteors = new Meteor[NUM_METEORS];
+
+ 	for(SDL_Event e; e.type!=SDL_QUIT&&e.type!=SDL_KEYDOWN; SDL_PollEvent(&e)) {
+		
+		ManageScrollingMeteors(world, NUM_METEORS, meteors);
+
+		int k = 0;
+		for(int i = 0; i < rootQuad->length; i += 1) {
+			for(int j = 0; j < rootQuad->length; j += 1) {
+				space::Space* space = rootQuad->GetSpace(i - (rootQuad->length/2), j - (rootQuad->length/2));
+				space::SpaceType type = space->overlay;
+				if(space->type != space::NONE) {
+					type = space->type;
+				}
+				GlyphCoord coord = MapGlyph(type);
+				renderGlyph(Main_Renderer, glyphs, i*gW, j*gH, coord.x, coord.y);
+				k += 1;	
+			}
+		}
+		SDL_RenderPresent(Main_Renderer);
+   		SDL_Delay(10); 
+  	}
+
+	SDL_DestroyTexture(glyphs);
+	SDL_DestroyRenderer(Main_Renderer);
+    	SDL_DestroyWindow(window);
+
+    	// Clean up
+    	SDL_Quit();
+    	return 0;
 }
