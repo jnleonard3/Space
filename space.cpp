@@ -1,7 +1,7 @@
 #include "SDL2\SDL.h"
 #include <stdio.h>
-#include <stdlib.h>     /* srand, rand */
-#include <time.h>       /* time */
+#include <stdlib.h>
+#include <time.h>
 #include <iostream>
 
 namespace space {
@@ -19,10 +19,15 @@ namespace space {
 		Space();
 		SpaceType type;
 		SpaceType overlay;
+		int hash();
 	};
 
 	Space::Space() {
 	}
+
+	int Space::hash() {
+		return (3 * type) + (7 * overlay);
+	};
 
 	class Quad {
 	public:
@@ -125,6 +130,30 @@ void MoveMeteor(space::World* world, Meteor* meteor) {
 	}
 }
 
+void InitalizeMeteor(space::World* world, Meteor* meteor, bool randomY) {
+	space::Quad* rootQuad = world->rootQuad;
+	int bound = rootQuad->length / 2;
+	int negBound = -bound;
+	int xF = (rand() % rootQuad->length) - bound;
+	int yF = randomY ? (rand() % rootQuad->length) - bound : negBound - (rand() % 5);
+	int xT = ((rand() % 10) - 5) + xF;
+	int yT = (rand() % 5) + bound;
+	int binary = (rand() % 2);
+	meteor->xA = xF;
+	meteor->yA = yF;
+	meteor->xD = xT - xF;
+	meteor->yD = yT - yF;
+	float length = sqrt(pow(meteor->xD, 2) + pow(meteor->yD, 2));
+	meteor->xD /= length;
+	meteor->yD /= length;
+	if(binary == 0) {
+		meteor->type = space::METEOR;
+	} else {
+		meteor->type = space::METEOR2;
+	}
+
+}
+
 void ManageScrollingMeteors(space::World* world, int length, Meteor* meteors) {
 	space::Quad* rootQuad = world->rootQuad;
 	int bound = rootQuad->length / 2;
@@ -132,23 +161,7 @@ void ManageScrollingMeteors(space::World* world, int length, Meteor* meteors) {
 	for(int i = 0; i < length; i += 1) {
 		Meteor* meteor = &meteors[i];
 		if(meteor->xD == 0 || meteor-> yA > bound) {
-			int xF = (rand() % rootQuad->length) - bound;
-		      	int yF = negBound - (rand() % 5);
-			int xT = ((rand() % 10) - 5) + xF;
-		      	int yT = (rand() % 5) + bound;
-			int binary = (rand() % 2);
-			meteor->xA = xF;
-			meteor->yA = yF;
-			meteor->xD = xT - xF;
-			meteor->yD = yT - yF;
-			float length = sqrt(pow(meteor->xD, 2) + pow(meteor->yD, 2));
-			meteor->xD /= length;
-			meteor->yD /= length;
-			if(binary == 0) {
-				meteor->type = space::METEOR;
-			} else {
-				meteor->type = space::METEOR2;
-			}
+			InitalizeMeteor(world, meteor, false);
 		} else {
 			MoveMeteor(world, meteor);
 		}
@@ -229,16 +242,16 @@ int main(int argc, char* argv[]) {
 
 	srand (time(NULL));
 
-    	SDL_Window *window;                    // Declare a pointer
-    	SDL_Init(SDL_INIT_VIDEO);              // Initialize SDL2
+    	SDL_Window *window;
+    	SDL_Init(SDL_INIT_VIDEO);
 
     	window = SDL_CreateWindow(
-        	"Spaaaaaaace",                  // window title
-        	SDL_WINDOWPOS_UNDEFINED,           // initial x position
-        	SDL_WINDOWPOS_UNDEFINED,           // initial y position
-        	rootQuad->length*gW,                               // width, in pixels
-        	rootQuad->length*gH,                               // height, in pixels
-        	SDL_WINDOW_OPENGL                  // flags - see below
+			"Spaaaaaaace", 
+			SDL_WINDOWPOS_UNDEFINED,
+        	SDL_WINDOWPOS_UNDEFINED,
+        	rootQuad->length*gW,
+        	rootQuad->length*gH,
+        	SDL_WINDOW_OPENGL
     	);
 
     	if (window == NULL) {
@@ -252,10 +265,18 @@ int main(int argc, char* argv[]) {
 	SDL_Texture* glyphs = SDL_CreateTextureFromSurface(Main_Renderer, Loading_Surf);
   	SDL_FreeSurface(Loading_Surf);
 
-	static int NUM_METEORS = 100;
-	Meteor* meteors = new Meteor[NUM_METEORS];
+	int** hashes = new int*[rootQuad->length];
+	for(int i = 0; i < rootQuad->length; i += 1) {
+		hashes[i] = new int[rootQuad->length];
+	}
 
- 	for(SDL_Event e; e.type!=SDL_QUIT&&e.type!=SDL_KEYDOWN; SDL_PollEvent(&e)) {
+	static int NUM_METEORS = 30;
+	Meteor* meteors = new Meteor[NUM_METEORS];
+	for(int i = 0; i < NUM_METEORS; i += 1) {
+		InitalizeMeteor(world, &meteors[i], true);
+	}
+
+ 	for(SDL_Event e; e.type != SDL_QUIT; SDL_PollEvent(&e)) {
 		
 		ManageScrollingMeteors(world, NUM_METEORS, meteors);
 
@@ -263,6 +284,13 @@ int main(int argc, char* argv[]) {
 		for(int i = 0; i < rootQuad->length; i += 1) {
 			for(int j = 0; j < rootQuad->length; j += 1) {
 				space::Space* space = rootQuad->GetSpace(i - (rootQuad->length/2), j - (rootQuad->length/2));
+				int hash = space->hash();
+				if(hashes[i][j] == hash) {
+					continue;
+				} else {
+					hashes[i][j] = hash;
+				}
+				
 				space::SpaceType type = space->overlay;
 				if(space->type != space::NONE) {
 					type = space->type;
@@ -273,14 +301,13 @@ int main(int argc, char* argv[]) {
 			}
 		}
 		SDL_RenderPresent(Main_Renderer);
-   		SDL_Delay(10); 
+   		SDL_Delay(25); 
   	}
 
 	SDL_DestroyTexture(glyphs);
 	SDL_DestroyRenderer(Main_Renderer);
     	SDL_DestroyWindow(window);
 
-    	// Clean up
     	SDL_Quit();
     	return 0;
 }
