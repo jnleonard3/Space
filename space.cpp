@@ -10,8 +10,10 @@ namespace space {
 		NONE = 0,
 		WALL,
 		FLOOR,
+		ENGINE,
 		METEOR,
-		METEOR2
+		METEOR2,
+		FIRE
 	};
 
 	class Space {
@@ -90,7 +92,7 @@ namespace space {
 	World::World() {
 		rootQuad = new Quad();
 		rootQuad->children = new Quad*[4];
-		rootQuad->length = 50;
+		rootQuad->length = 60;
 		for(int i = 0; i < 4; i += 1) {
 			rootQuad->children[i] = new Quad(rootQuad->length/2);
 			rootQuad->children[i]->id = i + 1;
@@ -182,13 +184,51 @@ void CreateBlock(space::World* world, space::SpaceType type, int xF, int yF, int
 
 void CreateRoom(space::World* world, int xF, int yF, int xT, int yT) {
 	space::Quad* rootQuad = world->rootQuad;
-	CreateBlock(world, space::WALL, xF, yF, xF, yT, false);
-	CreateBlock(world, space::WALL, xF, yF, xT, yF, false);
-	CreateBlock(world, space::WALL, xT, yF, xT, yT, false);
-	CreateBlock(world, space::WALL, xF, yT, xT, yT, false);
-	CreateBlock(world, space::FLOOR, xF + 1, yF + 1, xT - 1, yT - 1, true);
+	int xMin = std::min(xF, xT), xMax = std::max(xF, xT);
+	int yMin = std::min(yF, yT), yMax = std::max(yF, yT);
+	CreateBlock(world, space::WALL, xMin, yMin, xMin, yMax, false);
+	CreateBlock(world, space::WALL, xMin, yMin, xMax, yMin, false);
+	CreateBlock(world, space::WALL, xMax, yMin, xMax, yMax, false);
+	CreateBlock(world, space::WALL, xMin, yMax, xMax, yMax, false);
+	CreateBlock(world, space::FLOOR, xMin + 1, yMin + 1, xMax - 1, yMax - 1, true);
 }
 
+class Log {
+	public:
+		static int BUFFER_SIZE;
+		static Log* Get();
+
+		void Write(const char* msg, int length);
+		char* buffer;
+	private:
+		Log();
+		static Log* Instance;
+};
+
+int Log::BUFFER_SIZE = 256;
+
+Log* Log::Instance = 0;
+
+Log::Log() {
+	buffer = new char[Log::BUFFER_SIZE];
+	for(int i = 0; i < BUFFER_SIZE; i += 1) {
+		buffer[i] = 0;
+	}
+}
+
+void Log::Write(const char* msg, int length) {
+	length = std::min(length, BUFFER_SIZE);
+	for(int i = 0; i < length; i += 1) {
+		buffer[i] = msg[i];
+	}
+}
+
+Log* Log::Get() {
+	if(Instance == 0) {
+		Instance = new Log();
+	}
+	return Instance;
+}
 
 // Graphics Nonsense
 
@@ -213,6 +253,14 @@ GlyphCoord MapGlyph(space::SpaceType type) {
 			coord.x = 11;
 			coord.y = 3;
 			break;
+		case space::ENGINE:
+			coord.x = 4;
+			coord.y = 3;
+			break;
+		case space::FIRE:
+			coord.x = 24;
+			coord.y = 1;
+			break;
 		case space::METEOR:
 			coord.x = 13;
 			coord.y = 3;
@@ -231,6 +279,24 @@ void renderGlyph(SDL_Renderer* renderer, SDL_Texture* glyphs, int x, int y, int 
 	SDL_RenderCopy(renderer, glyphs, &clip, &quad);
 }
 
+GlyphCoord MapChar(char ch) {
+	GlyphCoord coord = { 2, 10 };
+	if(ch >= 'a' && ch <= 'z') {
+		coord.x = ch - 'a';
+		coord.y = 0;
+	} else if (ch >= 'A' && ch <= 'Z') {
+		coord.x = ch - 'A';
+		coord.y = 1;
+	} else if (ch >= '1' && ch <= '9') {
+		coord.x = ch - '1';
+		coord.y = 2;
+	} else if (ch == '0') {
+		coord.x = 9;
+		coord.y = 2;
+	}
+	return coord;
+}
+
 int main(int argc, char* argv[]) {
 
 	space::World* world = new space::World();
@@ -238,19 +304,24 @@ int main(int argc, char* argv[]) {
 
 	CreateRoom(world, -5, -5, 5, 5);
 	CreateRoom(world, -7, -2, 7, 2); 
-	CreateRoom(world, -2, -5, 2, -10); 
+	CreateRoom(world, -2, -4, 2, -9); 
+	CreateBlock(world, space::ENGINE, -3, 6, 3, 6, true);
+	CreateBlock(world, space::FIRE, -3, 7, 3, 7, true);
 
 	srand (time(NULL));
 
     	SDL_Window *window;
     	SDL_Init(SDL_INIT_VIDEO);
 
+	static int WIN_WIDTH = rootQuad->length;
+	static int WIN_HEIGHT = rootQuad->length + 1;
+
     	window = SDL_CreateWindow(
-			"Spaaaaaaace", 
-			SDL_WINDOWPOS_UNDEFINED,
+		"Spaaaaaaace", 
+		SDL_WINDOWPOS_UNDEFINED,
         	SDL_WINDOWPOS_UNDEFINED,
-        	rootQuad->length*gW,
-        	rootQuad->length*gH,
+        	WIN_WIDTH * gW,
+        	WIN_HEIGHT * gH,
         	SDL_WINDOW_OPENGL
     	);
 
@@ -265,39 +336,51 @@ int main(int argc, char* argv[]) {
 	SDL_Texture* glyphs = SDL_CreateTextureFromSurface(Main_Renderer, Loading_Surf);
   	SDL_FreeSurface(Loading_Surf);
 
-	int** hashes = new int*[rootQuad->length];
-	for(int i = 0; i < rootQuad->length; i += 1) {
-		hashes[i] = new int[rootQuad->length];
+	int** hashes = new int*[WIN_HEIGHT];
+	for(int i = 0; i < WIN_HEIGHT; i += 1) {
+		hashes[i] = new int[WIN_WIDTH];
+		for(int j = 0; j < WIN_WIDTH; j += 1) {
+			hashes[i][j] = -1;
+		}
 	}
 
-	static int NUM_METEORS = 30;
+	static int NUM_METEORS = 20;
 	Meteor* meteors = new Meteor[NUM_METEORS];
 	for(int i = 0; i < NUM_METEORS; i += 1) {
 		InitalizeMeteor(world, &meteors[i], true);
 	}
 
+	Log::Get()->Write("Herp Derp 1230", 14);
+
  	for(SDL_Event e; e.type != SDL_QUIT; SDL_PollEvent(&e)) {
 		
 		ManageScrollingMeteors(world, NUM_METEORS, meteors);
 
-		int k = 0;
-		for(int i = 0; i < rootQuad->length; i += 1) {
-			for(int j = 0; j < rootQuad->length; j += 1) {
-				space::Space* space = rootQuad->GetSpace(i - (rootQuad->length/2), j - (rootQuad->length/2));
-				int hash = space->hash();
+		char* logMsg = Log::Get()->buffer;
+
+		for(int i = 0; i < WIN_WIDTH; i += 1) {
+			for(int j = 0; j < WIN_HEIGHT; j += 1) {
+
+				GlyphCoord coord = { 0, 3 };
+				if(i < rootQuad->length && j < rootQuad->length) {
+					space::Space* space = rootQuad->GetSpace(i - (rootQuad->length/2), j - (rootQuad->length/2));
+					space::SpaceType type = space->overlay;
+					if(space->type != space::NONE) {
+						type = space->type;
+					}
+					coord = MapGlyph(type);
+				} else {
+					char ch = logMsg[i];
+					coord = MapChar(ch);
+				}
+
+				int hash = coord.x * 3 + coord.y * 7;
 				if(hashes[i][j] == hash) {
 					continue;
 				} else {
 					hashes[i][j] = hash;
 				}
-				
-				space::SpaceType type = space->overlay;
-				if(space->type != space::NONE) {
-					type = space->type;
-				}
-				GlyphCoord coord = MapGlyph(type);
 				renderGlyph(Main_Renderer, glyphs, i*gW, j*gH, coord.x, coord.y);
-				k += 1;	
 			}
 		}
 		SDL_RenderPresent(Main_Renderer);
