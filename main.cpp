@@ -23,8 +23,8 @@ GlyphCoord MapGlyph(space::SpaceType type, SDL_Color fg, SDL_Color bg) {
 			coord.y = 2;
 			break;
 		case space::WALL:
-			coord.x = 23;
-			coord.y = 1;
+			coord.x = 18;
+			coord.y = 3;
 			break;
 		case space::FLOOR:
 			coord.x = 11;
@@ -45,6 +45,11 @@ GlyphCoord MapGlyph(space::SpaceType type, SDL_Color fg, SDL_Color bg) {
 		case space::METEOR2:
 			coord.x = 14;
 			coord.y = 0;
+			break;
+		case space::HANGAR_FLOOR:
+			coord.x = 11;
+			coord.y = 3;
+			coord.fg = (SDL_Color) { 75, 75, 75 };
 			break;
 	}
 	return coord;
@@ -165,13 +170,17 @@ int main(int argc, char* argv[]) {
 		InitalizeMeteor(world, &meteors[i], true);
 	}
 
-	Log::Get()->Write("Herp Derp 1230", 14);
+	for(int i = 0; i < rootQuad->length; i += 1) {
+		for(int j = 0; j < rootQuad->length; j += 1) {
+			rootQuad->GetSpace(i - (rootQuad->length/2), j - (rootQuad->length/2))->overlay = space::HANGAR_FLOOR;
+		}
+	}
 
  	for(SDL_Event e; e.type != SDL_QUIT; SDL_PollEvent(&e)) {
 
 		int redraws = 0;
 		
-		ManageScrollingMeteors(world, NUM_METEORS, meteors);
+		//ManageScrollingMeteors(world, NUM_METEORS, meteors);
 
 		char* logMsg = Log::Get()->buffer;
 

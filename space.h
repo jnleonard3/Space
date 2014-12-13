@@ -10,7 +10,8 @@ namespace space {
 		ENGINE,
 		METEOR,
 		METEOR2,
-		FIRE
+		FIRE,
+		HANGAR_FLOOR
 	};
 
 	class Space {
