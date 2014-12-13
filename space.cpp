@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <cstdio>
 #include <iostream>
 
 namespace space {
@@ -221,6 +222,9 @@ void Log::Write(const char* msg, int length) {
 	for(int i = 0; i < length; i += 1) {
 		buffer[i] = msg[i];
 	}
+	for(int i = length; i < BUFFER_SIZE; i += 1) {
+		buffer[i] = 0;
+	}
 }
 
 Log* Log::Get() {
@@ -236,10 +240,11 @@ static int gW = 8, gH = 15;
 
 struct GlyphCoord {
 	int x, y;
+	SDL_Color fg, bg;
 };
 
-GlyphCoord MapGlyph(space::SpaceType type) {
-	GlyphCoord coord = { 10, 2 };
+GlyphCoord MapGlyph(space::SpaceType type, SDL_Color fg, SDL_Color bg) {
+	GlyphCoord coord = { 10, 2, fg, bg };
 	switch(type) {
 		case space::NONE:
 			coord.x = 10;
@@ -273,14 +278,44 @@ GlyphCoord MapGlyph(space::SpaceType type) {
 	return coord;
 }
 
+struct TextureCache {
+	int hash;
+	SDL_Texture* texture;
+};
+
+SDL_Texture* CreateColoredGlyph(SDL_Renderer* renderer, SDL_Surface* bwGlyph, SDL_Color fgC, SDL_Color bgC) {
+	SDL_Surface* colorSurface = SDL_ConvertSurface(bwGlyph, bwGlyph->format, 0);
+
+	colorSurface->format->palette->colors[0] = bgC;
+	colorSurface->format->palette->colors[1] = fgC;
+
+	SDL_Texture* coloredGlyph = SDL_CreateTextureFromSurface(renderer, colorSurface);
+	SDL_FreeSurface(colorSurface);
+	return coloredGlyph;
+}
+
+SDL_Texture* GetColoredGlyph(SDL_Renderer* renderer, SDL_Surface* bwGlyph, SDL_Color fgC, SDL_Color bgC, TextureCache* cache, int cacheWidth) {
+	int hash = fgC.r * 3 + fgC.g * 5 + fgC.b * 7 + bgC.r * 11 + bgC.g * 13 + bgC.b * 17;
+	TextureCache entry = cache[hash % cacheWidth];
+	if(entry.hash == hash && entry.texture != 0) {
+		return entry.texture;
+	}
+	SDL_DestroyTexture(entry.texture);
+	SDL_Texture* texture = CreateColoredGlyph(renderer, bwGlyph, fgC, bgC);
+	entry.hash = hash;
+	entry.texture = texture;
+	cache[hash % cacheWidth] = entry;
+	return texture;
+}
+
 void renderGlyph(SDL_Renderer* renderer, SDL_Texture* glyphs, int x, int y, int gX, int gY) {
 	SDL_Rect quad = { x, y, gW, gH };
 	SDL_Rect clip = { gX*gW, gY*gH, gW, gH };
 	SDL_RenderCopy(renderer, glyphs, &clip, &quad);
 }
 
-GlyphCoord MapChar(char ch) {
-	GlyphCoord coord = { 2, 10 };
+GlyphCoord MapChar(char ch, SDL_Color fg, SDL_Color bg) {
+	GlyphCoord coord = { 10, 2, fg, bg };
 	if(ch >= 'a' && ch <= 'z') {
 		coord.x = ch - 'a';
 		coord.y = 0;
@@ -333,9 +368,17 @@ int main(int argc, char* argv[]) {
 	SDL_Renderer* Main_Renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
 	SDL_Surface* Loading_Surf = SDL_LoadBMP("glyphs_black.bmp");
-	SDL_Texture* glyphs = SDL_CreateTextureFromSurface(Main_Renderer, Loading_Surf);
-  	SDL_FreeSurface(Loading_Surf);
 
+	static int TEXTURE_CACHE_SIZE = 128;
+
+	TextureCache* textureCache = new TextureCache[TEXTURE_CACHE_SIZE];
+	for(int i = 0; i < TEXTURE_CACHE_SIZE; i += 1) {
+		textureCache[i].hash;
+		textureCache[i].texture = 0;
+	}
+
+	SDL_Color black = { 0, 0, 0 }, white = { 255, 255, 255 };
+	
 	int** hashes = new int*[WIN_HEIGHT];
 	for(int i = 0; i < WIN_HEIGHT; i += 1) {
 		hashes[i] = new int[WIN_WIDTH];
@@ -353,6 +396,8 @@ int main(int argc, char* argv[]) {
 	Log::Get()->Write("Herp Derp 1230", 14);
 
  	for(SDL_Event e; e.type != SDL_QUIT; SDL_PollEvent(&e)) {
+
+		int redraws = 0;
 		
 		ManageScrollingMeteors(world, NUM_METEORS, meteors);
 
@@ -361,33 +406,47 @@ int main(int argc, char* argv[]) {
 		for(int i = 0; i < WIN_WIDTH; i += 1) {
 			for(int j = 0; j < WIN_HEIGHT; j += 1) {
 
-				GlyphCoord coord = { 0, 3 };
+				GlyphCoord coord = { 10, 2, black, white };
 				if(i < rootQuad->length && j < rootQuad->length) {
 					space::Space* space = rootQuad->GetSpace(i - (rootQuad->length/2), j - (rootQuad->length/2));
 					space::SpaceType type = space->overlay;
 					if(space->type != space::NONE) {
 						type = space->type;
 					}
-					coord = MapGlyph(type);
+					coord = MapGlyph(type, white, black);
 				} else {
 					char ch = logMsg[i];
-					coord = MapChar(ch);
+					coord = MapChar(ch, black, white);
 				}
 
-				int hash = coord.x * 3 + coord.y * 7;
+				int hash = coord.x * 3 + coord.y * 7 + coord.fg.r * 11 + coord.bg.r * 13;
 				if(hashes[i][j] == hash) {
 					continue;
 				} else {
 					hashes[i][j] = hash;
 				}
+				SDL_Texture* glyphs = GetColoredGlyph(Main_Renderer, Loading_Surf, coord.fg, coord.bg, textureCache, TEXTURE_CACHE_SIZE);
 				renderGlyph(Main_Renderer, glyphs, i*gW, j*gH, coord.x, coord.y);
+				redraws += 1;
 			}
 		}
+	
+		char* redrawMsg = new char[Log::BUFFER_SIZE];	
+		snprintf(redrawMsg, Log::BUFFER_SIZE, "Redraws per frame: %d", redraws);
+		Log::Get()->Write(redrawMsg, Log::BUFFER_SIZE);
+
+
 		SDL_RenderPresent(Main_Renderer);
    		SDL_Delay(25); 
   	}
 
-	SDL_DestroyTexture(glyphs);
+	SDL_FreeSurface(Loading_Surf);
+	for(int i = 0; i < TEXTURE_CACHE_SIZE; i += 1) {
+		TextureCache cache = textureCache[i];
+		if(cache.texture != 0) {
+			SDL_DestroyTexture(cache.texture);
+		}
+	}
 	SDL_DestroyRenderer(Main_Renderer);
     	SDL_DestroyWindow(window);
 
